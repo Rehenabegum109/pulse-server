@@ -11,6 +11,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true
+}));
+
 // -------------------------
 // MongoDB Connection
 // -------------------------
@@ -19,7 +25,7 @@ const client = new MongoClient(process.env.MONGO_URI);
 
 async function connectDB() {
   try {
-    await client.connect();
+    // await client.connect();
     db = client.db("projectpulse");
     console.log("MongoDB connected");
   } catch (error) {
@@ -27,6 +33,7 @@ async function connectDB() {
     process.exit(1);
   }
 }
+
 connectDB();
 
 // -------------------------
@@ -37,7 +44,7 @@ const protect = async (req, res, next) => {
   if (!token) return res.status(401).json({ message: "No token" });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await db.collection("users").findOne({ _id: new ObjectId(decoded.id) });
+const user = await db.collection("users").findOne({ _id: new ObjectId(decoded.id) });
     if (!user) return res.status(401).json({ message: "User not found" });
     req.user = user;
     next();
@@ -190,33 +197,25 @@ app.post('/api/projects', protect, authorize('admin'), async (req, res) => {
 
 app.get("/api/projects", protect, async (req, res) => {
   try {
-    const userId = req.user._id.toString(); 
-
     let projects;
 
+    
     if (req.user.role === "admin") {
-      
       projects = await db.collection("projects").find().toArray();
-
-    } else if (req.user.role === "employee") {
-      
-      projects = await db.collection("projects").find({
-        employees: userId
-      }).toArray();
-
-    } else if (req.user.role === "client") {
-
-      projects = await db.collection("projects").find({
-        client: userId
-      }).toArray();
-
-    } else {
+    } 
+    
+    else if (req.user.role === "employee") {
+      projects = await db.collection("projects").find({ employees: req.user._id.toString() }).toArray();
+    } 
+    
+    else if (req.user.role === "client") {
+      projects = await db.collection("projects").find({ client: req.user._id.toString() }).toArray();
+    } 
+    else {
       return res.status(403).json({ message: "Access denied" });
     }
 
-    // console.log("Fetched Projects:", projects);
     res.json(projects);
-
   } catch (err) {
     console.error("Error fetching projects:", err);
     res.status(500).json({ message: "Server error" });
@@ -307,7 +306,7 @@ app.post("/api/projects/:id/feedbacks", protect, authorize("client"), async (req
       communicationRating: Number(communicationRating),
       comments: comments || "",
       flagIssue: flagIssue || false,
-      week: getCurrentWeek(), // Optional: current week
+      week: getCurrentWeek(), 
       createdAt: new Date()
     };
 
@@ -342,8 +341,6 @@ app.delete('/api/projects/:id', protect, authorize('admin'), async (req, res) =>
 });
 
 
-//  Employee Weekly Check-in
-// routes/checkins.js
 app.post("/api/checkins", protect, authorize("employee"), async (req,res)=>{
   const { projectId, progressSummary, blockers, confidenceLevel, completionPercentage } = req.body;
 
@@ -416,7 +413,7 @@ app.get('/api/admin/projects/missing-checkins', protect, authorize('admin'), asy
 });
 
 
-// 7️⃣ Client Feedback
+//  Client Feedback
 app.post("/api/feedbacks", protect, authorize("client"), async (req,res)=>{
   const { projectId, satisfactionRating, communicationRating, comments, flaggedIssue } = req.body;
   const feedback = {
@@ -563,4 +560,4 @@ app.get('/api/admin/projects/high-risk', protect, authorize('admin'), async (req
 // Start Server
 // -------------------------
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
