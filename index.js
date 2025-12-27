@@ -136,7 +136,7 @@ app.post("/create-users", async (req, res) => {
 
 
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await db.collection('users').findOne({ email });
   if (!user) return res.status(400).json({ message: 'Invalid credentials' });
@@ -149,12 +149,12 @@ app.post('/api/auth/login', async (req, res) => {
 
 
 
-app.get("/api/auth/me", protect, async (req, res) => { 
+app.get("/auth/me", protect, async (req, res) => { 
   const { _id, name, email, role } = req.user;
   res.json({ id: _id, name, email, role });
 });
 
-app.post('/api/projects', protect, authorize('admin'), async (req, res) => {
+app.post('/projects', protect, authorize('admin'), async (req, res) => {
   const { name, description, startDate, endDate, clientId, employeeIds } = req.body;
 
   const project = {
@@ -175,7 +175,7 @@ app.post('/api/projects', protect, authorize('admin'), async (req, res) => {
 });
 
 
-app.get("/api/projects", protect, async (req, res) => {
+app.get("/projects", protect, async (req, res) => {
   try {
     let projects;
 
@@ -202,7 +202,7 @@ app.get("/api/projects", protect, async (req, res) => {
   }
 });
 
-app.get("/api/projects/:projectId", protect, async (req,res)=>{
+app.get("/projects/:projectId", protect, async (req,res)=>{
   try {
     const id = req.params.projectId;
 
@@ -218,7 +218,7 @@ app.get("/api/projects/:projectId", protect, async (req,res)=>{
     return res.status(400).json({ message: "Invalid Project ID" });
   }
 });
-app.get("/api/employee/projects", protect, authorize("employee"), async (req,res)=>{
+app.get("/employee/projects", protect, authorize("employee"), async (req,res)=>{
   try {
     const userId = req.user._id.toString();
     const projects = await db.collection("projects").find({
@@ -232,7 +232,7 @@ app.get("/api/employee/projects", protect, authorize("employee"), async (req,res
 });
 
 
-app.get('/api/admin/projects', protect, authorize('admin'), async (req,res)=>{
+app.get('/admin/projects', protect, authorize('admin'), async (req,res)=>{
   try {
     const projects = await db.collection('projects').find().toArray();
     const risks = await db.collection('risks').find().toArray();
@@ -260,7 +260,7 @@ app.get('/api/admin/projects', protect, authorize('admin'), async (req,res)=>{
 
 
 // GET all feedbacks for a project
-app.get("/api/projects/:id/feedbacks", protect, async (req, res) => {
+app.get("/projects/:id/feedbacks", protect, async (req, res) => {
   try {
     const projectId = req.params.id;
     const feedbacks = await db.collection("feedbacks")
@@ -273,7 +273,7 @@ app.get("/api/projects/:id/feedbacks", protect, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch feedbacks" });
   }
 });
-app.post("/api/projects/:id/feedbacks", protect, authorize("client"), async (req, res) => {
+app.post("/projects/:id/feedbacks", protect, authorize("client"), async (req, res) => {
   try {
     const projectId = req.params.id;
     const { satisfactionRating, communicationRating, comments, flagIssue } = req.body;
@@ -301,7 +301,7 @@ app.post("/api/projects/:id/feedbacks", protect, authorize("client"), async (req
 
 
 
-app.put("/api/projects/:id", protect, authorize("admin"), async (req, res) => {
+app.put("/projects/:id", protect, authorize("admin"), async (req, res) => {
   const { id } = req.params;
   const updateData = req.body;
 
@@ -314,14 +314,14 @@ app.put("/api/projects/:id", protect, authorize("admin"), async (req, res) => {
   res.json({ message: "Project updated" });
 });
 
-app.delete('/api/projects/:id', protect, authorize('admin'), async (req, res) => {
+app.delete('/projects/:id', protect, authorize('admin'), async (req, res) => {
   const { id } = req.params;
   await db.collection('projects').deleteOne({ _id: new ObjectId(id) });
   res.json({ message: 'Project deleted' });
 });
 
 
-app.post("/api/checkins", protect, authorize("employee"), async (req,res)=>{
+app.post("/checkins", protect, authorize("employee"), async (req,res)=>{
   const { projectId, progressSummary, blockers, confidenceLevel, completionPercentage } = req.body;
 
   if (!projectId) return res.status(400).json({ message: "ProjectId is required" });
@@ -343,13 +343,13 @@ app.post("/api/checkins", protect, authorize("employee"), async (req,res)=>{
 
 
 
-app.get("/api/checkins/:projectId", protect, async (req,res)=>{
+app.get("/checkins/:projectId", protect, async (req,res)=>{
   const { projectId } = req.params;
 
   const checkins = await db.collection("checkins").find({ projectId }).toArray();
   res.json(checkins);
 });
-app.get("/api/employee/checkins/pending", protect, authorize("employee"), async (req,res)=>{
+app.get("/employee/checkins/pending", protect, authorize("employee"), async (req,res)=>{
   try {
     const userId = req.user._id.toString();
     const projects = await db.collection("projects").find({ employees: userId }).toArray();
@@ -375,7 +375,7 @@ app.get("/api/employee/checkins/pending", protect, authorize("employee"), async 
 });
 
 
-app.get('/api/admin/projects/missing-checkins', protect, authorize('admin'), async (req,res)=>{
+app.get('/admin/projects/missing-checkins', protect, authorize('admin'), async (req,res)=>{
   try{
     const projects = await db.collection('projects').find().toArray();
     const week = getCurrentWeek();
@@ -394,7 +394,7 @@ app.get('/api/admin/projects/missing-checkins', protect, authorize('admin'), asy
 
 
 //  Client Feedback
-app.post("/api/feedbacks", protect, authorize("client"), async (req,res)=>{
+app.post("/feedbacks", protect, authorize("client"), async (req,res)=>{
   const { projectId, satisfactionRating, communicationRating, comments, flaggedIssue } = req.body;
   const feedback = {
     projectId,
@@ -410,7 +410,7 @@ app.post("/api/feedbacks", protect, authorize("client"), async (req,res)=>{
 });
 
 // GET all feedbacks for a project
-app.get("/api/feedbacks/:projectId", protect, async (req, res) => {
+app.get("/feedbacks/:projectId", protect, async (req, res) => {
   const projectId = req.params.projectId;
 
   try {
@@ -425,7 +425,7 @@ app.get("/api/feedbacks/:projectId", protect, async (req, res) => {
 });
 
 // GET /api/projects/assigned
-app.get("/api/projects/assigned", protect, async (req, res) => {
+app.get("/projects/assigned", protect, async (req, res) => {
   try {
     if (req.user.role !== "employee") {
       return res.status(403).json({ message: "Forbidden" });
@@ -450,7 +450,7 @@ app.get("/api/projects/assigned", protect, async (req, res) => {
 
 
 //  Health Score Calculation (Admin)
-app.get("/api/projects/:id/health", protect, authorize("admin"), async (req,res)=>{
+app.get("/projects/:id/health", protect, authorize("admin"), async (req,res)=>{
   const projectId = req.params.id;
   const project = await db.collection("projects").findOne({ _id: new ObjectId(projectId) });
   if(!project) return res.status(404).json({ message: "Project not found" });
@@ -480,7 +480,7 @@ app.get("/api/projects/:id/health", protect, authorize("admin"), async (req,res)
 });
 
 // Risk management
-app.get("/api/risks", protect, async (req, res) => {
+app.get("/risks", protect, async (req, res) => {
   try {
     let query = {};
 
@@ -501,7 +501,7 @@ app.get("/api/risks", protect, async (req, res) => {
 });
 
 
-app.post("/api/risks", protect, authorize("employee"), async (req, res) => {
+app.post("/risks", protect, authorize("employee"), async (req, res) => {
   try {
     const { projectId, title, severity, mitigationPlan, status } = req.body;
 
@@ -524,7 +524,7 @@ app.post("/api/risks", protect, authorize("employee"), async (req, res) => {
 });
 
 
-app.get('/api/admin/projects/high-risk', protect, authorize('admin'), async (req,res)=>{
+app.get('/admin/projects/high-risk', protect, authorize('admin'), async (req,res)=>{
   try{
     const risks = await db.collection('risks').find({status:'Open', severity:'High'}).toArray();
     const projectIds = [...new Set(risks.map(r=>r.projectId))];
@@ -546,7 +546,7 @@ app.get('/api/admin/projects/high-risk', protect, authorize('admin'), async (req
 }
 connectDB()
 
-app.get("/api", (req, res) => {
+app.get("/", (req, res) => {
   res.json({ message: "API is working!" });
 });
 
