@@ -1,10 +1,10 @@
-// index.js
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+const PORT = process.env.PORT || 5000;
 
 dotenv.config();
 const app = express();
@@ -17,28 +17,6 @@ app.use(cors({
   credentials: true
 }));
 
-// -------------------------
-// MongoDB Connection
-// -------------------------
-let db;
-const client = new MongoClient(process.env.MONGO_URI);
-
-async function connectDB() {
-  try {
-    // await client.connect();
-    db = client.db("projectpulse");
-    console.log("MongoDB connected");
-  } catch (error) {
-    console.error(error);
-    process.exit(1);
-  }
-}
-
-connectDB();
-
-// -------------------------
-// Middleware: Protect Routes
-// -------------------------
 const protect = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ message: "No token" });
@@ -104,15 +82,20 @@ function getCurrentWeek() {
   return `${now.getFullYear()}-W${week}`;
 }
 
-// -------------------------
-// Routes
-// -------------------------
 
-// Test route
-app.get("/api", (req, res) => {
-  res.json({ message: "API is working!" });
-});
-// 1️⃣ Seed Admin
+
+
+const client = new MongoClient(process.env.MONGO_URI);
+let db;
+async function connectDB() {
+  try {
+    await client.connect();
+     db = client.db("projectpulse");
+    
+
+
+
+
 app.get("/seed-admin", async (req, res) => {
   const existing = await db.collection("users").findOne({ email: "admin@example.com" });
   if (existing) return res.send("Admin already exists");
@@ -127,11 +110,8 @@ app.get("/seed-admin", async (req, res) => {
   res.send("Admin user created");
 });
 
-// -------------------------
-// Batch Create Users Route
-// -------------------------
 app.post("/create-users", async (req, res) => {
-  const users = req.body; // Expecting an array of users
+  const users = req.body; 
   if (!Array.isArray(users)) {
     return res.status(400).send("Please send an array of users");
   }
@@ -141,9 +121,9 @@ app.post("/create-users", async (req, res) => {
   for (let u of users) {
     const { name, email, password, role } = u;
 
-    // check if user already exists
+    
     const existing = await db.collection("users").findOne({ email });
-    if (existing) continue; // Skip existing users
+    if (existing) continue; 
 
     const hashedPassword = await bcrypt.hash(password, 10);
     await db.collection("users").insertOne({ name, email, password: hashedPassword, role });
@@ -168,7 +148,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 
-// Get logged-in user profile
+
 app.get("/api/auth/me", protect, async (req, res) => { 
   const { _id, name, email, role } = req.user;
   res.json({ id: _id, name, email, role });
@@ -556,8 +536,18 @@ app.get('/api/admin/projects/high-risk', protect, authorize('admin'), async (req
   }
 });
 
-// -------------------------
-// Start Server
-// -------------------------
-const PORT = process.env.PORT || 5000;
-// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+    console.log("MongoDB connected");
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
+}
+connectDB()
+
+app.get("/api", (req, res) => {
+  res.json({ message: "API is working!" });
+});
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
