@@ -7,15 +7,17 @@ import jwt from "jsonwebtoken";
 const PORT = process.env.PORT || 5000;
 
 dotenv.config();
+
+
 const app = express();
-app.use(cors());
-app.use(express.json());
-
-
 app.use(cors({
-  origin: "http://localhost:3000",
+  origin: ["http://localhost:3000"],
   credentials: true
 }));
+
+
+app.use(express.json());
+
 
 const protect = async (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -32,9 +34,6 @@ const user = await db.collection("users").findOne({ _id: new ObjectId(decoded.id
 };
 
 
-// -------------------------
-// Middleware: Role Authorization
-// -------------------------
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
@@ -49,9 +48,6 @@ app.use((req, res, next) => {
 });
 
 
-// -------------------------
-// Helper Functions
-// -------------------------
 
 function calculateHealth(project, risks = [], checkins = [], feedbacks = []) {
   let score = 100;
@@ -89,7 +85,7 @@ const client = new MongoClient(process.env.MONGO_URI);
 let db;
 async function connectDB() {
   try {
-    await client.connect();
+    // await client.connect();
      db = client.db("projectpulse");
     
 
@@ -155,26 +151,31 @@ app.get("/auth/me", protect, async (req, res) => {
 });
 
 app.post('/projects', protect, authorize('admin'), async (req, res) => {
-  const { name, description, startDate, endDate, clientId, employeeIds } = req.body;
+  try {
+    const { name, description, startDate, healthScore,endDate, client: clientId, employees } = req.body;
+    if (!name || !description || !startDate || !endDate || !clientId)
+      return res.status(400).json({ message: 'Missing required fields' });
 
-  const project = {
-    name,
-    description,
-    startDate: new Date(startDate),
-    endDate: new Date(endDate),
-    client: new ObjectId(clientId),
-    employees: employeeIds.map(id => new ObjectId(id)),
-    status: 'On Track',
-    healthScore: 100,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  };
+    const project = {
+      name,
+      description,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      client: new ObjectId(clientId),
+      employees: employees?.map(id => new ObjectId(id)) || [],
+      status: 'On Track',
+     healthScore: healthScore !== undefined ? Number(healthScore) : 100,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-  const result = await db.collection('projects').insertOne(project);
-  res.status(201).json({ message: 'Project created', projectId: result.insertedId });
+    const result = await db.collection('projects').insertOne(project);
+    res.status(201).json({ message: 'Project created', projectId: result.insertedId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Internal Server Error' });
+  }
 });
-
-
 app.get("/projects", protect, async (req, res) => {
   try {
     let projects;
@@ -202,64 +203,52 @@ app.get("/projects", protect, async (req, res) => {
   }
 });
 
-app.get("/projects/:projectId", protect, async (req,res)=>{
+
+app.get("/projects/:id", protect, async (req, res) => {
   try {
-    const id = req.params.projectId;
-
-    const project = await db.collection("projects").findOne({
-      _id: new ObjectId(id)
-    });
-
+    const project = await db.collection("projects").findOne({ _id: new ObjectId(req.params.id) });
     if (!project) return res.status(404).json({ message: "Project not found" });
-
     res.json(project);
-
   } catch (err) {
-    return res.status(400).json({ message: "Invalid Project ID" });
+    res.status(400).json({ message: "Invalid Project ID" });
   }
 });
-app.get("/employee/projects", protect, authorize("employee"), async (req,res)=>{
+
+
+app.put('/projects/:id', protect, authorize('admin'), async (req, res) => {
   try {
-    const userId = req.user._id.toString();
-    const projects = await db.collection("projects").find({
-      employees: userId
-    }).toArray();
-    res.json(projects);
-  } catch(err){
+    const { name, description, startDate, endDate, client, employees, status, healthScore } = req.body;
+
+    const updateData = {
+      name,
+      description,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      client: client ? new ObjectId(client) : null,
+      employees: employees?.map(id => new ObjectId(id)) || [],
+      status,
+      healthScore: Number(healthScore),
+      updatedAt: new Date()
+    };
+
+    const result = await db.collection('projects').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: updateData }
+    );
+
+    if (result.matchedCount === 0) return res.status(404).json({ message: 'Project not found' });
+
+    res.json({ message: 'Project updated' });
+  } catch (err) {
     console.error(err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 });
-
-
-app.get('/admin/projects', protect, authorize('admin'), async (req,res)=>{
-  try {
-    const projects = await db.collection('projects').find().toArray();
-    const risks = await db.collection('risks').find().toArray();
-    const checkins = await db.collection('checkins').find().toArray();
-    const feedbacks = await db.collection('feedbacks').find().toArray();
-
-    const result = projects.map(p=>{
-      const projectRisks = risks.filter(r=>r.projectId === p._id.toString());
-      const projectCheckins = checkins.filter(c=>c.projectId === p._id.toString());
-      const projectFeedbacks = feedbacks.filter(f=>f.projectId === p._id.toString());
-
-      return {
-        ...p,
-        openRisksCount: projectRisks.filter(r=>r.status==='Open').length,
-        healthScore: calculateHealth(p, projectRisks, projectCheckins, projectFeedbacks)
-      };
-    });
-
-    res.json(result);
-  } catch(err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error' });
-  }
+app.delete("/projects/:id", protect, authorize("admin"), async (req, res) => {
+  await db.collection("projects").deleteOne({ _id: new ObjectId(req.params.id) });
+  res.json({ message: "Project deleted" });
 });
 
-
-// GET all feedbacks for a project
 app.get("/projects/:id/feedbacks", protect, async (req, res) => {
   try {
     const projectId = req.params.id;
@@ -300,25 +289,6 @@ app.post("/projects/:id/feedbacks", protect, authorize("client"), async (req, re
 
 
 
-
-app.put("/projects/:id", protect, authorize("admin"), async (req, res) => {
-  const { id } = req.params;
-  const updateData = req.body;
-
-  const result = await db.collection("projects").updateOne(
-    { _id: new ObjectId(id) },
-    { $set: { ...updateData, updatedAt: new Date() } }
-  );
-
-  if (result.matchedCount === 0) return res.status(404).json({ message: "Project not found" });
-  res.json({ message: "Project updated" });
-});
-
-app.delete('/projects/:id', protect, authorize('admin'), async (req, res) => {
-  const { id } = req.params;
-  await db.collection('projects').deleteOne({ _id: new ObjectId(id) });
-  res.json({ message: 'Project deleted' });
-});
 
 
 app.post("/checkins", protect, authorize("employee"), async (req,res)=>{
@@ -393,38 +363,7 @@ app.get('/admin/projects/missing-checkins', protect, authorize('admin'), async (
 });
 
 
-//  Client Feedback
-app.post("/feedbacks", protect, authorize("client"), async (req,res)=>{
-  const { projectId, satisfactionRating, communicationRating, comments, flaggedIssue } = req.body;
-  const feedback = {
-    projectId,
-    clientId: req.user._id.toString(),
-    satisfactionRating,
-    communicationRating,
-    comments: comments || "",
-    flaggedIssue: flaggedIssue || false,
-    createdAt: new Date()
-  };
-  await db.collection("feedbacks").insertOne(feedback);
-  res.status(201).json({ message: "Feedback submitted" });
-});
 
-// GET all feedbacks for a project
-app.get("/feedbacks/:projectId", protect, async (req, res) => {
-  const projectId = req.params.projectId;
-
-  try {
-    const feedbacks = await db.collection("feedbacks")
-      .find({ projectId })
-      .toArray();
-
-    res.status(200).json(feedbacks);
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// GET /api/projects/assigned
 app.get("/projects/assigned", protect, async (req, res) => {
   try {
     if (req.user.role !== "employee") {
@@ -433,7 +372,7 @@ app.get("/projects/assigned", protect, async (req, res) => {
 
     const userId = req.user._id.toString();
 
-    // Projects where employee is assigned
+    
     const projects = await db.collection("projects")
       .find({ employeeIds: userId })
       .toArray();
@@ -449,7 +388,7 @@ app.get("/projects/assigned", protect, async (req, res) => {
 
 
 
-//  Health Score Calculation (Admin)
+
 app.get("/projects/:id/health", protect, authorize("admin"), async (req,res)=>{
   const projectId = req.params.id;
   const project = await db.collection("projects").findOne({ _id: new ObjectId(projectId) });
@@ -479,7 +418,7 @@ app.get("/projects/:id/health", protect, authorize("admin"), async (req,res)=>{
   res.json({ healthScore, status });
 });
 
-// Risk management
+
 app.get("/risks", protect, async (req, res) => {
   try {
     let query = {};
@@ -522,7 +461,34 @@ app.post("/risks", protect, authorize("employee"), async (req, res) => {
     res.status(500).json({ message: "Failed to submit risk" });
   }
 });
+app.get("/admin/risks/all", protect, authorize("admin"), async (req, res) => {
+  try {
+    const risks = await db.collection("risks")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
 
+    
+    const projectIds = [...new Set(risks.map(r => r.projectId))];
+    const projects = await db.collection("projects")
+      .find({ _id: { $in: projectIds.map(id => new ObjectId(id)) } })
+      .toArray();
+
+    const risksWithProjectName = risks.map(risk => {
+      const project = projects.find(p => p._id.toString() === risk.projectId);
+      return {
+        ...risk,
+        projectName: project?.name || "Unknown Project"
+      };
+    });
+
+    res.json(risksWithProjectName);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch risks" });
+  }
+});
 
 app.get('/admin/projects/high-risk', protect, authorize('admin'), async (req,res)=>{
   try{
@@ -535,6 +501,92 @@ app.get('/admin/projects/high-risk', protect, authorize('admin'), async (req,res
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+app.get("/admin/activity", protect, authorize("admin"), async (req, res) => {
+  try {
+
+    const checkIns = await db.collection("checkins")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const feedbacks = await db.collection("feedbacks")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const risks = await db.collection("risks")
+      .find({})
+      .sort({ createdAt: -1 })
+      .toArray();
+
+
+    // 🔐 Collect projectIds safely
+    const projectIds = [
+      ...new Set([
+        ...checkIns.map(c => c.projectId),
+        ...feedbacks.map(f => f.projectId),
+        ...risks.map(r => r.projectId)
+      ])
+    ]
+      .filter(id => id && ObjectId.isValid(id));   // << important
+
+
+    // 🟢 Only query if ids exist
+    let projects = [];
+    if (projectIds.length > 0) {
+      projects = await db.collection("projects")
+        .find({
+          _id: { $in: projectIds.map(id => new ObjectId(id)) }
+        })
+        .toArray();
+    }
+
+
+    const getProjectName = (id) =>
+      projects.find(p => p._id.toString() === id)?.name || "Unknown Project";
+
+
+    const activities = [
+      ...checkIns.map(c => ({
+        type: "Check-in",
+        projectId: c.projectId,
+        projectName: getProjectName(c.projectId),
+        user: c.employeeName || "Employee",
+        date: c.createdAt,
+        details: `Progress: ${c.progress}%, Confidence: ${c.confidence}, Blockers: ${c.blockers || "None"}`
+      })),
+
+      ...feedbacks.map(f => ({
+        type: "Client Feedback",
+        projectId: f.projectId,
+        projectName: getProjectName(f.projectId),
+        user: f.clientName || "Client",
+        date: f.createdAt,
+        details: `Satisfaction: ${f.satisfaction}, Comments: ${f.comments || "None"}`
+      })),
+
+      ...risks.map(r => ({
+        type: "Risk",
+        projectId: r.projectId,
+        projectName: getProjectName(r.projectId),
+        user: r.reportedBy || "Employee",
+        date: r.createdAt,
+        details: `Severity: ${r.severity}, Status: ${r.status}, Mitigation: ${r.mitigation || "N/A"}`
+      }))
+    ];
+
+    activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json(activities);
+
+  } catch (err) {
+    console.error("Admin activity error:", err);
+    res.status(500).json({ message: "Failed to fetch activities" });
+  }
+});
+
+
 
 
 
